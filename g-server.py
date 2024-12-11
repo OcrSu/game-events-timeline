@@ -980,21 +980,12 @@ def dynamic_favicon():
     return response
 
 
-def load_geetest_config():
-    geetest_config_path = os.path.join(base_dir, 'geetest.json')
-    with open(geetest_config_path, 'r', encoding='utf-8') as f:
-        geetest_config = json.load(f)
-    return geetest_config
-
-
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
         initialize_user()
         update_existing_passwords()
         scheduler = BackgroundScheduler()
-        geetest_config = load_geetest_config()
-        app.config['GEETEST_CONFIG'] = geetest_config
         scheduler.add_job(scheduled_task, 'cron', hour=9, minute=0)
         scheduler.add_job(scheduled_task, 'cron', hour=11, minute=0)
         scheduler.add_job(scheduled_task, 'cron', hour=18, minute=0)
