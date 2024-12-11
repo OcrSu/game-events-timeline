@@ -22,9 +22,9 @@ Docker Compose
 
 ~~~
 services:
-  mihomoget:
+  gtlget:
     image: suyiyi/getcheck:latest
-    container_name: mihomoGET
+    container_name: GameTimeLineGET
     restart: always
     ports:
       - "8180:8180"
