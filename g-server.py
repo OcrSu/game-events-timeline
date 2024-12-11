@@ -833,38 +833,6 @@ def update_existing_passwords():
             db.session.commit()
 
 
-def validate_geetest(validate):
-    geetest_config = app.config['GEETEST_CONFIG']
-    captcha_id = geetest_config.get('captchaId')
-    captcha_key = geetest_config.get('captchaKey')
-    lot_number = validate.get('lot_number', '')
-    captcha_output = validate.get('captcha_output', '')
-    pass_token = validate.get('pass_token', '')
-    gen_time = validate.get('gen_time', '')
-
-    lotnumber_bytes = lot_number.encode()
-    prikey_bytes = captcha_key.encode()
-    sign_token = hmac.new(prikey_bytes, lotnumber_bytes, digestmod=hashlib.sha256).hexdigest()
-
-    query = {
-        "lot_number": lot_number,
-        "captcha_output": captcha_output,
-        "pass_token": pass_token,
-        "gen_time": gen_time,
-        "sign_token": sign_token,
-    }
-    url = f"http://gcaptcha4.geetest.com/validate?captcha_id={captcha_id}"
-
-    try:
-        res = requests.post(url, data=query)
-        assert res.status_code == 200
-        gt_msg = res.json()
-    except Exception as e:
-        gt_msg = {'result': 'fail', 'reason': 'request geetest api fail'}
-
-    return gt_msg['result'] == 'success'
-
-
 @app.route('/get-public-key', methods=['GET'])
 def get_public_key():
     return public_key_pem, 200
@@ -876,9 +844,6 @@ def login():
     username = data.get('username')
     encrypted_password = data.get('password').encode('utf-8')
     validate = data.get('validate')
-
-    if not validate_geetest(validate):
-        return "Invalid captcha", 401
 
     password = decrypt_password(encrypted_password, private_key_pem)
 
