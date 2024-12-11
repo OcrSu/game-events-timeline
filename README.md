@@ -17,3 +17,17 @@ flask作为后端，前端纯原生实现，未使用框架
 暂时不做用户注册的功能，可自行在数据库中设定，首次运行服务端时，会在控制台输出默认用户名和初始密码
 
 ---
+
+Docker Compose
+
+~~~
+services:
+  mihomoget:
+    image: suyiyi/getcheck:latest
+    container_name: mihomoGET
+    restart: always
+    ports:
+      - "8180:8180"
+    environment:
+      TZ: Asia/Shanghai
+~~~
