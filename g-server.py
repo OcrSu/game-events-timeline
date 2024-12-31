@@ -42,67 +42,6 @@ def favicon():
     return send_from_directory(os.path.join(app.root_path, 'static'), 'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 
-@socketio.on('connect')
-def handle_connect():
-    token = request.args.get('token')
-    if not token:
-        return False
-
-    login_token = UserLoginToken.query.filter_by(token=token).first()
-    if not login_token:
-        return False
-
-    userid = login_token.userid
-    user = User.query.filter_by(userid=userid).first()
-    if not user:
-        return False
-
-    username = user.username
-
-    if userid not in user_connections:
-        user_connections[userid] = []
-
-    user_connections[userid].append(request.sid)
-    join_room(str(userid))
-    print(f"User {userid} connected with session ID {request.sid}")
-
-    emit('user_connected', {'username': username})
-
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    for userid, connections in user_connections.items():
-        if request.sid in connections:
-            connections.remove(request.sid)
-            leave_room(str(userid))
-            print(f"User {userid} disconnected with session ID {request.sid}")
-            break
-
-
-@socketio.on('settings_updated')
-def handle_update_settings(data):
-    token = request.args.get('token')
-    if not token:
-        return False
-
-    login_token = UserLoginToken.query.filter_by(token=token).first()
-    if not login_token:
-        return False
-
-    userid = login_token.userid
-    settings = data.get('settings')
-
-    user_settings = UserSettings.query.filter_by(userid=userid).first()
-    if user_settings:
-        user_settings.settings = json.dumps(settings)
-    else:
-        user_settings = UserSettings(userid=userid, settings=json.dumps(settings))
-        db.session.add(user_settings)
-
-    db.session.commit()
-    emit('settings_updated', settings, room=str(userid), include_self=False)
-
-
 def generate_rsa_keys():
     private_key = rsa.generate_private_key(
         public_exponent=65537,
@@ -168,18 +107,6 @@ class User(db.Model):
 
     def check_password(self, password):
         return check_password_hash(self.password, password)
-
-
-class UserLoginToken(db.Model):
-    tokenid = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    userid = db.Column(db.Integer, db.ForeignKey('user.userid'), nullable=False)
-    token = db.Column(db.String(256), nullable=False)
-    time = db.Column(db.DateTime, nullable=False, default=datetime.now)
-
-
-class UserSettings(db.Model):
-    userid = db.Column(db.Integer, db.ForeignKey('user.userid'), primary_key=True)
-    settings = db.Column(db.Text, nullable=False)
 
 
 def generate_token():
@@ -484,7 +411,10 @@ def fetch_and_save_announcements():
                                         clean_title = f"【神铸赋形】武器祈愿: {", ".join(weapon_names)}"
                                     else:
                                         match = re.search(r'·(.*)\(', clean_title)
-                                        character_name = match.group(1)
+                                        if match:  # 检查match是否不为None  
+                                            character_name = match.group(1)  # 如果match不为None，则安全调用group()方法  
+                                        else:  
+                                            print("No match found.")
                                         match = re.search(r'「([^」]+)」祈愿', clean_title)
                                         gacha_name = match.group(1)
                                         clean_title = f"【{gacha_name}】角色祈愿: {character_name}"
@@ -866,91 +796,6 @@ def update_existing_passwords():
 @app.route('/get-public-key', methods=['GET'])
 def get_public_key():
     return public_key_pem, 200
-
-
-@app.route('/login', methods=['POST'])
-def login():
-    data = request.json
-    username = data.get('username')
-    encrypted_password = data.get('password').encode('utf-8')
-    validate = data.get('validate')
-    
-    password = decrypt_password(encrypted_password, private_key_pem)
-
-    user = User.query.filter_by(username=username).first()
-    if user and user.check_password(password):
-        token = generate_token()
-        login_token = UserLoginToken(userid=user.userid, token=token)
-        db.session.add(login_token)
-        limit_user_tokens(user.userid)
-        db.session.commit()
-
-        response = make_response(jsonify({"code": 0, "message": "Logged in successfully", "token": login_token.token}))
-        response.set_cookie('token', token, expires=None)
-        return response
-    else:
-        return "Invalid credentials", 401
-
-
-@app.route('/logout', methods=['POST'])
-def logout():
-    token = request.headers.get('Authorization').split(' ')[1]
-    if not token:
-        return jsonify({'message': 'Unauthorized'}), 401
-
-    login_token = UserLoginToken.query.filter_by(token=token).first()
-    if not login_token:
-        return jsonify({'message': 'Unauthorized'}), 401
-
-    db.session.delete(login_token)
-    db.session.commit()
-
-    response = make_response(jsonify({"code": 0, 'message': 'Logged out successfully'}))
-    response.set_cookie('token', '', expires=0)
-    return response
-
-
-@app.route('/game-events/save-settings', methods=['POST'])
-def save_user_settings():
-    token = request.cookies.get('token')
-    if not token:
-        return "Unauthorized", 401
-
-    login_token = UserLoginToken.query.filter_by(token=token).first()
-    if not login_token:
-        return "Unauthorized", 401
-
-    userid = login_token.userid
-    settings = request.json
-
-    user_settings = UserSettings.query.filter_by(userid=userid).first()
-    if user_settings:
-        user_settings.settings = json.dumps(settings)
-    else:
-        user_settings = UserSettings(userid=userid, settings=json.dumps(settings))
-        db.session.add(user_settings)
-
-    db.session.commit()
-    return jsonify({"code": 0, "message": "ok"})
-
-
-@app.route('/game-events/load-settings', methods=['GET'])
-def load_user_settings():
-    token = request.cookies.get('token')
-    if not token:
-        return "Unauthorized", 401
-
-    login_token = UserLoginToken.query.filter_by(token=token).first()
-    if not login_token:
-        return "Unauthorized", 401
-
-    userid = login_token.userid
-    user_settings = UserSettings.query.filter_by(userid=userid).first()
-
-    if user_settings:
-        return jsonify(json.loads(user_settings.settings))
-    else:
-        return jsonify({})
 
 
 def generate_random_password(length=8):
