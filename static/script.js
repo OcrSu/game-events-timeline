@@ -1,3 +1,5 @@
+"use strict";
+
 window.remainingTimeInterval = null;
 window.totalDays = 0;
 window.pxPerDay = 36;
@@ -7,56 +9,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (token) {
         window.socket = connectWebSocket(token);
         loadEvents(socket);
-        addLogoutButton();
     } else {
         loadEvents();
-        addLoginButton();
     }
-
-    const toggleBtn = document.querySelector('.toggle-btn');
-    const loginContainer = document.querySelector('.login-container');
     const legendContainer = document.querySelector('.legend-inner');
-
-    toggleBtn.addEventListener('click', () => {
-        loginContainer.classList.toggle('collapsed');
-        legendContainer.classList.toggle('collapsed');
-        toggleBtn.textContent = legendContainer.classList.contains('collapsed') ? '▲' : '▼';
-        toggleBtn.style.position = legendContainer.classList.contains('collapsed') ? "static" : "absolute";
-    });
-
-    const usernameinput = document.querySelector("input[name=username]");
-    const passwordinput = document.querySelector("input[name=password]");
-
-    usernameinput.addEventListener('input', function () {
-        this.classList.toggle('red', this.value.trim() === '' || this.value.length > 16);
-    });
-
-    passwordinput.addEventListener('input', function () {
-        this.classList.toggle('red', this.value.trim() === '' || this.value.length > 32);
-    });
-
-    const logbtn = document.querySelector(".login-btn");
-    logbtn.addEventListener("click", function () {
-        let err = false;
-        const username = usernameinput.value;
-        const password = passwordinput.value;
-
-        if (username.trim() === '' || username.length > 16) {
-            usernameinput.classList.add('red');
-            err = true;
-        }
-        if (password.trim() === '' || password.length > 32) {
-            passwordinput.classList.add('red');
-            err = true;
-        }
-        if (!err) {
-            usernameinput.classList.remove('red');
-            passwordinput.classList.remove('red');
-            login(username, password);
-        }
-    });
 });
 
+let eventsSettings = {};
 function loadEvents(socket) {
     fetch('game-events/getnotice')
         .then(response => response.json())
@@ -75,6 +34,11 @@ function loadEvents(socket) {
                             game: type,
                             type: event.event_type,
                         };
+                        if (newEvent.bannerImage === "") {
+                            if (newEvent.game === "sr") {
+                                newEvent.bannerImage = "/static/images/sr.png";
+                            }
+                        }
                         events.push(newEvent);
                     });
                 }
@@ -85,6 +49,12 @@ function loadEvents(socket) {
                 createTimeline(events);
                 setInterval(updateCurrentTimeMarker, 100);
                 createLegend();
+                const savedSettings = localStorage.getItem('events_setting');
+                if (savedSettings) {
+                    eventsSettings = JSON.parse(savedSettings);
+                }
+                loadHiddenStatus();
+                loadCompletionStatus();
             } else {
                 const legendContainer = document.querySelector('.legend-list');
                 legendContainer.innerHTML = "当前无事件";
@@ -93,138 +63,6 @@ function loadEvents(socket) {
         .catch(error => console.error('Error loading events:', error));
 }
 
-async function login(username, password) {
-    window.userinfo = { "username": username, "password": password };
-    captchaObj.showCaptcha(); //显示验证码
-}
-
-async function login2(validate) {
-    const logbtn = document.querySelector(".login-btn");
-    logbtn.disabled = true;
-    logbtn.innerHTML = "...";
-    const username = userinfo['username'];
-    const password = userinfo['password'];
-    const response = await fetch('/get-public-key');
-    const publicKey = await response.text();
-    const encryptedPassword = await encryptPassword(password, publicKey);
-
-    const loginResponse = await fetch('/login', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            username: username,
-            password: encryptedPassword,
-            validate: validate
-        }),
-    });
-
-    if (loginResponse.ok) {
-        const responseData = await loginResponse.json();
-        localStorage.setItem('token', responseData.token);
-        const loginForm = document.querySelector(".login-form");
-        loginForm.classList.add("hide");
-        connectWebSocket(responseData.token);
-        addLogoutButton();
-    } else {
-        const logbtn = document.querySelector(".login-btn");
-        logbtn.classList.add("red");
-        logbtn.innerHTML = "登录失败";
-        setTimeout(() => {
-            logbtn.classList.remove("red");
-            logbtn.innerHTML = "确认登录";
-            logbtn.disabled = false;
-        }, 1500);
-    }
-}
-
-async function logout() {
-    const token = localStorage.getItem('token');
-    if (!token) {
-        alert('Not logged in');
-        return;
-    }
-
-    const response = await fetch('/logout', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${token}`,
-        },
-    });
-
-    if (response.ok) {
-        localStorage.removeItem('token');
-        socket.disconnect();
-        addLoginButton();
-    } else {
-        localStorage.removeItem('token');
-        socket.disconnect();
-        const logoutButton = document.querySelector(".logout-btn");
-        logoutButton.classList.add("red");
-        logoutButton.innerHTML = "登出失败，请等待...";
-        setTimeout(() => {
-            addLoginButton();
-        }, 1500);
-    }
-}
-
-async function encryptPassword(password, publicKey) {
-    const encryptor = new JSEncrypt();
-    encryptor.setPublicKey(publicKey);
-    return encryptor.encrypt(password);
-}
-
-function connectWebSocket(token) {
-    window.socket = io('https://g.4g.si/', {
-        query: { token }
-    });
-
-    socket.on('connect', () => {
-        console.log('Connected to server');
-        fetchLatestSettings(socket);
-    });
-
-    socket.on('user_connected', (data) => {
-        const username = data.username;
-        const userContainer = document.querySelector(".user-container");
-        userContainer.innerHTML = `已登录: ${username}`;
-    });
-
-    socket.on('settings_updated', (data) => {
-        localStorage.setItem('events_setting', JSON.stringify(data));
-        loadCompletionStatus();
-    });
-
-    socket.on('disconnect', () => {
-        console.log('Disconnected from server');
-    });
-
-    return socket;
-}
-
-function fetchLatestSettings(socket) {
-    fetch('/game-events/load-settings', {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.length === 0) {
-                updateSettings(data, socket);
-            } else {
-                localStorage.setItem('events_setting', JSON.stringify(data));
-                loadCompletionStatus();
-            }
-        })
-        .catch(error => console.error('Error fetching latest settings:', error));
-}
-
-function updateSettings(settings, socket) {
-    socket.emit('settings_updated', { settings });
-}
 
 function createTimeline(events) {
     const timeline = document.querySelector('.timeline');
@@ -293,6 +131,7 @@ function createTimeline(events) {
         eventElement.dataset.end = event.end.getTime();
         eventElement.dataset.bannerImage = event.bannerImage;
         eventElement.dataset.uuid = event.uuid;
+        eventElement.dataset.game = event.game;
         eventElement.style.backgroundColor = event.color;
 
         const eventStartOffset = (event.start.getTime() - timelineStart.getTime()) / totalTimeInMs;
@@ -376,7 +215,12 @@ function createTimeline(events) {
             } else if (event.game === "zzz") {
                 bannerDiv.style.backgroundPosition = 'center 34px';
             } else {
-                bannerDiv.style.backgroundPosition = 'center';
+                if (!event.name.includes("武器")) {
+                    bannerDiv.style.backgroundPosition = 'center 35%';
+                }
+                else {
+                    bannerDiv.style.backgroundPosition = 'center center';
+                }
             }
         } else {
             bannerDiv.style.backgroundPosition = 'center';
@@ -535,8 +379,12 @@ function createLegend() {
         legendItem.classList.add('legend-item');
 
         const colorBox = document.createElement('span');
+        colorBox.dataset.game = activity.type;
         colorBox.classList.add('color-box');
         colorBox.style.backgroundColor = getColor(activity.type);
+
+        // 添加点击事件监听器
+        colorBox.addEventListener('click', () => toggleGameEventsVisibility(activity.type));
 
         const label = document.createElement('span');
         label.classList.add('label');
@@ -545,6 +393,99 @@ function createLegend() {
         legendItem.appendChild(colorBox);
         legendItem.appendChild(label);
         legendContainer.appendChild(legendItem);
+    });
+}
+
+window.hiddenEvents = {}; // 存储每个事件的隐藏状态
+
+function toggleGameEventsVisibility(gameType) {
+    const events = document.querySelectorAll('.event');
+
+    events.forEach(event => {
+        if (event.dataset.game === gameType) {
+            const uuid = event.dataset.uuid;
+            const isHidden = window.hiddenEvents[uuid] || false;
+
+            // 切换隐藏状态
+            window.hiddenEvents[uuid] = !isHidden;
+            event.style.display = isHidden ? 'flex' : 'none';
+            // 更新 eventsSettings
+            if (!eventsSettings[uuid]) {
+                eventsSettings[uuid] = {};
+            }
+            eventsSettings[uuid].isHidden = !isHidden;
+        }
+    });
+    recalculateEventPositions();
+    updateColorBoxStyle(gameType);
+    saveEventsSettings();
+}
+
+function saveEventsSettings() {
+    localStorage.setItem('events_setting', JSON.stringify(eventsSettings));
+    updateSettings(eventsSettings, socket);
+}
+
+function recalculateEventPositions() {
+    const events = document.querySelectorAll('.event');
+    let currentTop = 0; // 当前事件的顶部位置
+
+    events.forEach(event => {
+        if (event.style.display !== 'none') {
+            // 如果事件未隐藏，调整其位置
+            event.style.top = `${currentTop}px`;
+            currentTop += event.offsetHeight + 8; // 增加事件高度和间距
+        }
+    });
+}
+
+function loadHiddenStatus() {
+    const events = document.querySelectorAll('.event');
+
+    events.forEach(event => {
+        const uuid = event.dataset.uuid;
+        const isHidden = eventsSettings[uuid]?.isHidden || false;
+
+        if (isHidden) {
+            event.style.display = 'none';
+        } else {
+            event.style.display = 'flex';
+        }
+    });
+    initializeColorBoxStyles();
+    recalculateEventPositions();
+}
+
+
+function updateColorBoxStyle(gameType) {
+    const colorBox = document.querySelector(`.color-box[data-game="${gameType}"]`);
+    if (!colorBox) return;
+
+    // 检查当前游戏类型的事件是否全部隐藏
+    const isAllHidden = Array.from(document.querySelectorAll(`.event[data-game="${gameType}"]`)).every(event => event.style.display === 'none');
+    // console.log(isAllHidden)
+
+    if (isAllHidden) {
+        // 如果全部隐藏，设置为虚线边框空心
+        // colorBox.style.width = "17px";
+        // colorBox.style.height = "17px";
+        colorBox.style.border = '2px dashed ' + getColor(gameType);
+        colorBox.style.backgroundColor = 'transparent';
+    } else {
+        // 如果显示，设置为实心
+        // colorBox.style.width = "20px";
+        // colorBox.style.height = "20px";
+        // colorBox.style.border = 'none';
+        colorBox.style.border = '2px solid ' + getColor(gameType);
+        colorBox.style.backgroundColor = getColor(gameType);
+    }
+}
+
+function initializeColorBoxStyles() {
+    const activityTypes = ['ys', 'sr', 'zzz', 'ww']; // 游戏类型
+
+    activityTypes.forEach(gameType => {
+        updateColorBoxStyle(gameType);
     });
 }
 
@@ -625,6 +566,8 @@ document.querySelector('.close-btn').addEventListener('click', function () {
 function toggleCompletionStatus(event) {
     event.stopPropagation();
     const box = event.target;
+    const eventElement = box.closest('.event');
+    const uuid = eventElement.dataset.uuid;
     const currentStatus = box.dataset.status;
     let newStatus;
 
@@ -650,56 +593,40 @@ function toggleCompletionStatus(event) {
     }
 
     box.dataset.status = newStatus;
-    saveCompletionStatus();
+    if (!eventsSettings[uuid]) {
+        eventsSettings[uuid] = {};
+    }
+    eventsSettings[uuid].isCompleted = newStatus;
+    saveEventsSettings();
 }
 
-function saveCompletionStatus() {
-    const events = document.querySelectorAll('.event');
-    const eventsSettings = {};
-
-    events.forEach(event => {
-        const uuid = event.dataset.uuid;
-        const completionBox = event.querySelector('.completion-box');
-        const status = completionBox.dataset.status;
-
-        eventsSettings[uuid] = {
-            isCompleted: status
-        };
-    });
-
-    localStorage.setItem('events_setting', JSON.stringify(eventsSettings));
-    updateSettings(eventsSettings, socket);
-}
 
 function loadCompletionStatus() {
-    const eventsSettings = JSON.parse(localStorage.getItem('events_setting')) || {};
     const events = document.querySelectorAll('.event');
 
     events.forEach(event => {
         const uuid = event.dataset.uuid;
         const completionBox = event.querySelector('.completion-box');
+        const status = eventsSettings[uuid]?.isCompleted || '0';
 
-        if (eventsSettings[uuid] && eventsSettings[uuid].isCompleted) {
-            const status = eventsSettings[uuid].isCompleted;
-            completionBox.dataset.status = status;
+        completionBox.dataset.status = status;
 
-            switch (status) {
-                case '1':
-                    completionBox.style.border = '2px solid lightgreen';
-                    completionBox.style.backgroundColor = '#6f67';
-                    completionBox.innerHTML = "✅";
-                    break;
-                case '2':
-                    completionBox.style.border = '2px solid yellow';
-                    completionBox.style.backgroundColor = 'rgba(255, 255, 0, 0.5)';
-                    completionBox.innerHTML = "⏩";
-                    break;
-                default:
-                    completionBox.style.border = '2px dashed lightgrey';
-                    completionBox.style.backgroundColor = 'rgba(225, 225, 225, 0.5)';
-                    completionBox.innerHTML = "";
-                    break;
-            }
+        switch (status) {
+            case '1':
+                completionBox.style.border = '2px solid lightgreen';
+                completionBox.style.backgroundColor = '#6f67';
+                completionBox.innerHTML = "✅";
+                break;
+            case '2':
+                completionBox.style.border = '2px solid yellow';
+                completionBox.style.backgroundColor = 'rgba(255, 255, 0, 0.5)';
+                completionBox.innerHTML = "⏩";
+                break;
+            default:
+                completionBox.style.border = '2px dashed lightgrey';
+                completionBox.style.backgroundColor = 'rgba(225, 225, 225, 0.5)';
+                completionBox.innerHTML = "";
+                break;
         }
     });
 }
@@ -745,47 +672,4 @@ function changeTime(t) {
     Date.UTC = OriginalDate.UTC;
     Date.parse = OriginalDate.parse;
     Date.prototype = OriginalDate.prototype;
-}
-
-function addLoginButton() {
-    const loginButton = document.createElement("button");
-    const logoutButton = document.querySelector(".logout-btn");
-    logoutButton && logoutButton.remove();
-    const userContainer = document.querySelector(".user-container");
-    userContainer && userContainer.remove();
-    const loginContainer = document.querySelector(".login-container");
-    loginButton.innerHTML = "点击登录";
-    loginButton.classList.add("login-button");
-    loginButton.addEventListener("click", function () {
-        loginButton.remove()
-        const loginForm = document.querySelector(".login-form");
-        loginForm.classList.remove("hide");
-    });
-    loginContainer.appendChild(loginButton);
-}
-
-function addLogoutButton() {
-    let logoutButton = document.querySelector(".logout-btn");
-    logoutButton && logoutButton.remove();
-    logoutButton = document.createElement("button");
-    const loginContainer = document.querySelector(".login-container");
-    logoutButton.innerHTML = "点击退出登录";
-    const usernameinput = document.querySelector("input[name=username]");
-    const passwordinput = document.querySelector("input[name=password]");
-    logoutButton.classList.add("logout-btn");
-    logoutButton.addEventListener("click", function () {
-        logoutButton.innerHTML = "...";
-        logoutButton.disabled = true;
-        logout();
-        const logbtn = document.querySelector(".login-btn");
-        logbtn.innerHTML = "确认登录";
-        logbtn.disabled = false;
-    });
-    const userContainer = document.createElement("div");
-    userContainer.innerHTML = `已登录: ${usernameinput.value || "-"}`;
-    userContainer.classList.add("user-container");
-    usernameinput.value = "";
-    passwordinput.value = "";
-    loginContainer.appendChild(userContainer);
-    loginContainer.appendChild(logoutButton);
 }
