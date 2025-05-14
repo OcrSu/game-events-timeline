@@ -27,4 +27,4 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         push: true
-        tags: suyiyi/getcheck:v1.1
+        tags: suyiyi/getcheck:v1.2
