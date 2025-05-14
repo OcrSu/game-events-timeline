@@ -1356,8 +1356,7 @@ def redirect_to_events():
 def game_events():
     global geetest_config
     # geetest_config = app.config['GEETEST_CONFIG']
-    captcha_id = geetest_config.get('captchaId')
-    return render_template("game-events.html", nowYear=datetime.now().year, captchaId=captcha_id)
+    return render_template("game-events.html", nowYear=datetime.now().year)
 
 
 @app.route('/favicon')
