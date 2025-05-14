@@ -1408,6 +1408,8 @@ scheduler.start()
 
 
 if __name__ == "__main__":
-      with app.app_context():
+    with app.app_context():
         db.create_all()
+        initialize_user()
+        update_existing_passwords()
     socketio.run(app, host="0.0.0.0", port=8180, allow_unsafe_werkzeug=True)
