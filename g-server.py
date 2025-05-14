@@ -1399,28 +1399,6 @@ def show_404_page(e):
     return render_template('404.html', nowYear=datetime.now().year), 404
 
 
-def load_geetest_config():
-    geetest_config_path = os.path.join(base_dir, 'geetest.json')
-    if not os.path.exists(geetest_config_path):
-        return None
-
-    try:
-        with open(geetest_config_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-            # 检查必要字段是否存在且非空
-            if not config.get('captchaId') or not config.get('captchaKey'):
-                print(
-                    "Warning: geetest.json is missing required fields (captchaId or captchaKey). Captcha will be disabled.")
-                return None
-            return config
-    except json.JSONDecodeError:
-        print("Warning: geetest.json is invalid. Captcha will be disabled.")
-        return None
-
-
-geetest_config = load_geetest_config()
-app.config['GEETEST_CONFIG'] = geetest_config
-
 scheduler = BackgroundScheduler()
 scheduler.add_job(scheduled_task, 'cron', hour=9, minute=0)
 scheduler.add_job(scheduled_task, 'cron', hour=12, minute=30)
@@ -1430,9 +1408,4 @@ scheduler.start()
 
 
 if __name__ == "__main__":
-    geetest_config = load_geetest_config()
-    with app.app_context():
-        db.create_all()
-        initialize_user()
-        update_existing_passwords()
     socketio.run(app, host="0.0.0.0", port=8180, allow_unsafe_werkzeug=True)
